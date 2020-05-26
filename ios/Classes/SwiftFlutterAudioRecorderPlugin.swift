@@ -73,7 +73,7 @@ public class SwiftFlutterAudioRecorderPlugin: NSObject, FlutterPlugin, AVAudioRe
                 #endif
                 try AVAudioSession.sharedInstance().setActive(true)
 
-                try AVAudioSession.sharedInstance().setMode(AVAudioSession.Mode.measurement)
+                try AVAudioSession.sharedInstance().setMode(AVAudioSessionModeMeasurement)
 
                 audioRecorder = try AVAudioRecorder(url: URL(string: mPath)!, settings: settings)
                 audioRecorder.delegate = self
