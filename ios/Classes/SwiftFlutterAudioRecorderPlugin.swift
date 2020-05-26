@@ -72,10 +72,9 @@ public class SwiftFlutterAudioRecorderPlugin: NSObject, FlutterPlugin, AVAudioRe
                 try AVAudioSession.sharedInstance().setCategory(AVAudioSessionCategoryPlayAndRecord, with: AVAudioSessionCategoryOptions.defaultToSpeaker)
                 #endif
                 try AVAudioSession.sharedInstance().setActive(true)
-                if AVAudioSession.sharedInstance().inputGainSettable {
-                  try AVAudioSession.sharedInstance().setInputGain(1.0)
-                }
+
                 try AVAudioSession.sharedInstance().setMode(AVAudioSession.Mode.measurement)
+
                 audioRecorder = try AVAudioRecorder(url: URL(string: mPath)!, settings: settings)
                 audioRecorder.delegate = self
                 audioRecorder.isMeteringEnabled = true
