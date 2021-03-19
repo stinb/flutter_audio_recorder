@@ -5,6 +5,7 @@ import android.content.pm.PackageManager;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import android.media.audiofx.AutomaticGainControl;
 import android.os.Build.VERSION;
 
 import androidx.core.app.ActivityCompat;
@@ -178,7 +179,7 @@ public class FlutterAudioRecorderPlugin implements MethodCallHandler, PluginRegi
   }
 
   private void handleStart(MethodCall call, Result result) {
-    mRecorder = new AudioRecord(MediaRecorder.AudioSource.MIC, mSampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize);
+    mRecorder = new AudioRecord(MediaRecorder.AudioSource.CAMCORDER, mSampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize);
     try {
       mFileOutputStream = new FileOutputStream(getTempFilename());
     } catch (FileNotFoundException e) {
@@ -259,7 +260,7 @@ public class FlutterAudioRecorderPlugin implements MethodCallHandler, PluginRegi
     byte bData[] = new byte[size];
 
     while (mStatus == "recording"){
-      Log.d(LOG_NAME, "reading audio data");
+//      Log.d(LOG_NAME, "reading audio data");
       mRecorder.read(bData, 0, bData.length);
       mDataSize += bData.length;
       updatePowers(bData);
