@@ -1,11 +1,20 @@
 package com.zeno.flutter_audio_recorder;
 
 import android.Manifest;
+import android.content.Context;
 import android.content.pm.PackageManager;
+import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
+import android.media.AudioManager;
 import android.media.AudioRecord;
+import android.media.AudioRecordingConfiguration;
 import android.media.MediaRecorder;
+import android.media.audiofx.AcousticEchoCanceler;
+import android.media.audiofx.AudioEffect;
 import android.media.audiofx.AutomaticGainControl;
+import android.media.audiofx.DynamicsProcessing;
+import android.media.audiofx.Equalizer;
+import android.media.audiofx.NoiseSuppressor;
 import android.os.Build.VERSION;
 
 import androidx.core.app.ActivityCompat;
@@ -17,6 +26,8 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.HashMap;
@@ -48,7 +59,10 @@ public class FlutterAudioRecorderPlugin implements MethodCallHandler, PluginRegi
   private Thread mRecordingThread = null;
   private long mDataSize = 0;
   private Result _result;
-
+  private AudioManager mAudioManger;
+  private Context mContext;
+  private AudioManager.AudioRecordingCallback audioRecordingCallback;
+  private MediaRecorder mMediaRecorder;
 
   /** Plugin registration. */
   public static void registerWith(Registrar registrar) {
@@ -60,7 +74,22 @@ public class FlutterAudioRecorderPlugin implements MethodCallHandler, PluginRegi
   public FlutterAudioRecorderPlugin(Registrar registrar) {
     this.registrar = registrar;
     this.registrar.addRequestPermissionsResultListener(this);
+    this.mContext = registrar.context();
+    mediaRecorderMonitor(registrar.context());
   }
+
+  public void mediaRecorderMonitor(Context context) {
+    mAudioManger = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+    audioRecordingCallback =
+            new AudioManager.AudioRecordingCallback() {
+              @Override
+              public void onRecordingConfigChanged(List<AudioRecordingConfiguration> configs) {
+                super.onRecordingConfigChanged(configs);
+                Log.d("JMAP", "Recording Changed");
+              }
+            };
+  }
+
 
   @Override
   public boolean onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
@@ -68,20 +97,20 @@ public class FlutterAudioRecorderPlugin implements MethodCallHandler, PluginRegi
     switch (requestCode) {
       case REQUEST_RECORD_AUDIO_PERMISSION:
         boolean granted = true;
-        Log.d(LOG_NAME, "parsing result");
+//        Log.d(LOG_NAME, "parsing result");
         for (int result : grantResults) {
           if(result != PackageManager.PERMISSION_GRANTED) {
-            Log.d(LOG_NAME, "result" + result);
+//            Log.d(LOG_NAME, "result" + result);
             granted = false;
           }
         }
-        Log.d(LOG_NAME, "onRequestPermissionsResult -" + granted);
+//        Log.d(LOG_NAME, "onRequestPermissionsResult -" + granted);
         if(_result != null) {
           _result.success(granted);
         }
         return granted;
         default:
-          Log.d(LOG_NAME, "onRequestPermissionsResult - false");
+//          Log.d(LOG_NAME, "onRequestPermissionsResult - false");
           return false;
     }
   }
@@ -131,12 +160,12 @@ public class FlutterAudioRecorderPlugin implements MethodCallHandler, PluginRegi
 
   private void handleHasPermission(){
     if(hasRecordPermission()){
-      Log.d(LOG_NAME, "handleHasPermission true");
+//      Log.d(LOG_NAME, "handleHasPermission true");
       if(_result != null) {
         _result.success(true);
       }
     } else {
-      Log.d(LOG_NAME, "handleHasPermission false");
+//      Log.d(LOG_NAME, "handleHasPermission false");
 
       if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
         ActivityCompat.requestPermissions(registrar.activity(), new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.WRITE_EXTERNAL_STORAGE}, PERMISSIONS_REQUEST_RECORD_AUDIO);
@@ -179,16 +208,43 @@ public class FlutterAudioRecorderPlugin implements MethodCallHandler, PluginRegi
   }
 
   private void handleStart(MethodCall call, Result result) {
-    mRecorder = new AudioRecord(MediaRecorder.AudioSource.CAMCORDER, mSampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize);
+    int source;
+    AudioManager audioManager = (AudioManager)mContext.getSystemService(Context.AUDIO_SERVICE);
+    if(audioManager.getProperty(AudioManager.PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED) !=null)
+      source = MediaRecorder.AudioSource.UNPROCESSED;
+    else
+      source = MediaRecorder.AudioSource.VOICE_RECOGNITION;
+//    mRecorder = new AudioRecord(source, mSampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize);
+
+    mMediaRecorder = new MediaRecorder();
+    mMediaRecorder.setOnInfoListener(new MediaRecorder.OnInfoListener() {
+      @Override
+      public void onInfo(MediaRecorder mr, int what, int extra) {
+        if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED) {
+          mRecorder.stop();
+        }
+      }
+    });
+    mMediaRecorder.setAudioSource(source);
+    mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP);
+    mMediaRecorder.setAudioEncoder(MediaRecorder.OutputFormat.AMR_NB);
+    mMediaRecorder.setOutputFile(mFilePath);
     try {
-      mFileOutputStream = new FileOutputStream(getTempFilename());
-    } catch (FileNotFoundException e) {
-      result.error("", "cannot find the file", null);
-      return;
+      mMediaRecorder.prepare();
+    } catch (IOException e) {
+      e.printStackTrace();
     }
-    mRecorder.startRecording();
+    mMediaRecorder.start();
+
+//    try {
+//      mFileOutputStream = new FileOutputStream(getTempFilename());
+//    } catch (FileNotFoundException e) {
+//      result.error("", "cannot find the file", null);
+//      return;
+//    }
+//    mRecorder.startRecording();
     mStatus = "recording";
-    startThread();
+//    startThread();
     result.success(null);
   }
 
@@ -219,47 +275,81 @@ public class FlutterAudioRecorderPlugin implements MethodCallHandler, PluginRegi
   }
 
   private void handleStop(MethodCall call, Result result) {
-    if(mStatus.equals("stopped")) {
-      result.success(null);
-    } else {
-      mStatus = "stopped";
+    mMediaRecorder.stop();
+    mMediaRecorder.release();
+    mMediaRecorder = null;
+    HashMap<String, Object> currentResult = new HashMap<>();
+    currentResult.put("duration", getDuration() * 1000);
+    currentResult.put("path", mFilePath);
+    currentResult.put("audioFormat", mExtension);
+    currentResult.put("peakPower", mPeakPower);
+    currentResult.put("averagePower", mAveragePower);
+    currentResult.put("isMeteringEnabled", true);
+    currentResult.put("status", mStatus);
 
-      // Return Recording Object
-      HashMap<String, Object> currentResult = new HashMap<>();
-      currentResult.put("duration", getDuration() * 1000);
-      currentResult.put("path", mFilePath);
-      currentResult.put("audioFormat", mExtension);
-      currentResult.put("peakPower", mPeakPower);
-      currentResult.put("averagePower", mAveragePower);
-      currentResult.put("isMeteringEnabled", true);
-      currentResult.put("status", mStatus);
-
-
-      resetRecorder();
-      mRecordingThread = null;
-      mRecorder.stop();
-      mRecorder.release();
-      try {
-        mFileOutputStream.close();
-      } catch (IOException e) {
-        e.printStackTrace();
-      }
-      Log.d(LOG_NAME, "before adding the wav header");
-      copyWaveFile(getTempFilename(), mFilePath);
-      deleteTempFile();
-
-      // Log.d(LOG_NAME, currentResult.toString());
-      result.success(currentResult);
-    }
+    result.success(currentResult);
+//    if(mStatus.equals("stopped")) {
+//      result.success(null);
+//    } else {
+//      mStatus = "stopped";
+//
+//      // Return Recording Object
+//      HashMap<String, Object> currentResult = new HashMap<>();
+//      currentResult.put("duration", getDuration() * 1000);
+//      currentResult.put("path", mFilePath);
+//      currentResult.put("audioFormat", mExtension);
+//      currentResult.put("peakPower", mPeakPower);
+//      currentResult.put("averagePower", mAveragePower);
+//      currentResult.put("isMeteringEnabled", true);
+//      currentResult.put("status", mStatus);
+//
+//
+//      resetRecorder();
+//      mRecordingThread = null;
+//      mRecorder.stop();
+//      mRecorder.release();
+//      try {
+//        mFileOutputStream.close();
+//      } catch (IOException e) {
+//        e.printStackTrace();
+//      }
+////      Log.d(LOG_NAME, "before adding the wav header");
+//      copyWaveFile(getTempFilename(), mFilePath);
+//      deleteTempFile();
+//
+//      // Log.d(LOG_NAME, currentResult.toString());
+//      result.success(currentResult);
+//    }
 
   }
 
   private void processAudioStream() {
-    Log.d(LOG_NAME, "processing the stream: " + mStatus);
+//    Log.d(LOG_NAME, "processing the stream: " + mStatus);
     int size = bufferSize;
     byte bData[] = new byte[size];
-
     while (mStatus == "recording"){
+//
+//      if (NoiseSuppressor.isAvailable()) {
+//        NoiseSuppressor ns = NoiseSuppressor.create(
+//                mRecorder.getAudioSessionId()
+//        );
+//        ns.setEnabled(false);
+//      }
+//
+//      if (AutomaticGainControl.isAvailable()) {
+//        AutomaticGainControl agc = AutomaticGainControl.create(
+//                mRecorder.getAudioSessionId()
+//        );
+//        agc.setEnabled(false);
+//      }
+//
+//      if (AcousticEchoCanceler.isAvailable()) {
+//        AcousticEchoCanceler aec = AcousticEchoCanceler.create(
+//                mRecorder.getAudioSessionId()
+//        );
+//        aec.setEnabled(false);
+//      }
+
 //      Log.d(LOG_NAME, "reading audio data");
       mRecorder.read(bData, 0, bData.length);
       mDataSize += bData.length;
